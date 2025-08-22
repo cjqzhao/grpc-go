@@ -19,6 +19,7 @@ package xdsresource
 
 import (
 	"google.golang.org/grpc/xds/internal/clients"
+	"google.golang.org/grpc/xds/internal/xdsclient/xdsmetadataregistry"
 	"google.golang.org/protobuf/types/known/anypb"
 )
 
@@ -73,4 +74,10 @@ type EndpointsUpdate struct {
 
 	// Raw is the resource from the xds response.
 	Raw *anypb.Any
+}
+
+// MetadataUpdate contains metadata information from a received EDS response
+type MetadataUpdate struct {
+	TypedFilterMetadata map[string]MetadataValue
+	// FilterMetadata map[string]MetadataValue
 }

@@ -103,7 +103,7 @@ func (scs *ServerConfigs) Equal(other *ServerConfigs) bool {
 // unmarshals it to the struct.
 func (scs *ServerConfigs) UnmarshalJSON(data []byte) error {
 	servers := []*ServerConfig{}
-	if err := json.Unmarshal(data, &servers); err != nil {
+	if err := json.Unmarshal(data, scs); err != nil {
 		return fmt.Errorf("xds: failed to JSON unmarshal server configurations during bootstrap: %v, config:\n%s", err, string(data))
 	}
 	*scs = servers

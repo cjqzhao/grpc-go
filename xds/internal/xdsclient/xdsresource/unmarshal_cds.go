@@ -37,7 +37,11 @@ import (
 	"google.golang.org/grpc/internal/xds/bootstrap"
 	"google.golang.org/grpc/internal/xds/matcher"
 	"google.golang.org/grpc/xds/internal/xdsclient/xdslbregistry"
+	xdsmetadataregistry "google.golang.org/grpc/xds/internal/xdsclient/xdsmetadataregistry1"
+
+	// "google.golang.org/grpc/xds/internal/xdsclient/xdsmetadataregistry"
 	"google.golang.org/grpc/xds/internal/xdsclient/xdsresource/version"
+	// "google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/anypb"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -71,6 +75,24 @@ func unmarshalClusterResource(r *anypb.Any, serverCfg *bootstrap.ServerConfig) (
 	}
 	cu.Raw = r
 
+	//if none 
+
+	// add in validateClusterAndConstructUpdate
+	// parsed_metadata = {}  # Value is either JSON or parsed object
+	// # First process typed_filter_metadata.
+	// for key, any_field in cluster_metadata.typed_filter_metadata.items():
+	// parser = metadata_registry.FindParser(any_field.type_url)
+	// if parser is not None:
+	// 	value = parser.Parse(any_field.value)
+	// 	if value is None:
+	// 	return NACK  # Parsing failed, reject resource
+	// 	parsed_metadata[key] = value
+	// # Now process filter_metadata.  We look only at keys that were not
+	// # already added from typed_filter_metadata.
+	// for key, struct_field in cluster_metadata.filter_metadata.items():
+	// if key not in parsed_metadata:
+    // 	parsed_metadata[key] = ConvertToJson(struct_field)
+
 	return cluster.GetName(), cu, nil
 }
 
@@ -83,6 +105,43 @@ const (
 )
 
 func validateClusterAndConstructClusterUpdate(cluster *v3clusterpb.Cluster, serverCfg *bootstrap.ServerConfig) (ClusterUpdate, error) {
+	metadata := make(map[string]xdsmetadataregistry.MetadataValue)
+
+	if metadata := cluster.GetMetadata(); metadata != nil {
+		// First, process TypedFilterMetadata as it takes precedence.
+		for key, anyProto := range metadata.GetTypedFilterMetadata() {
+			// This relies on the registry and GetConverter() function being available.
+			converter := xdsmetadataregistry.GetConverter(anyProto.GetTypeUrl())
+			if converter == nil {
+				continue // Ignore types we don't have a converter for.
+			}
+
+			val, err := converter(anyProto.GetValue())
+			if err != nil {
+				// If the parser fails (e.g., on an invalid IP), reject the whole resource.
+				// This is what the failing test is designed to check.
+				return ClusterUpdate{}, fmt.Errorf("metadata parser for key %q and type %q failed: %v", key, anyProto.GetTypeUrl(), err)
+			}
+			metadata[key] = val
+		}
+
+		// Second, process FilterMetadata for any keys not already handled.
+		for key, structProto := range metadata.GetFilterMetadata() {
+			if _, ok := metadata[key]; ok {
+				continue // Skip keys already processed from typed metadata.
+			}
+			// The existing logic already handles this key specifically, so we can skip it here.
+			if key == "com.google.csm.telemetry_labels" {
+				continue
+			}
+
+			b, err := protojson.Marshal(structProto)
+			if err != nil {
+				return ClusterUpdate{}, fmt.Errorf("failed to marshal filter metadata for key %q: %v", key, err)
+			}
+			metadata[key] = JSONMetadata{Data: json.RawMessage(b)}
+		}
+	}
 	telemetryLabels := make(map[string]string)
 	if fmd := cluster.GetMetadata().GetFilterMetadata(); fmd != nil {
 		if val, ok := fmd["com.google.csm.telemetry_labels"]; ok {
@@ -229,6 +288,7 @@ func validateClusterAndConstructClusterUpdate(cluster *v3clusterpb.Cluster, serv
 	default:
 		return ClusterUpdate{}, fmt.Errorf("unsupported cluster type (%v, %v) in response: %+v", cluster.GetType(), cluster.GetClusterType(), cluster)
 	}
+
 }
 
 // dnsHostNameFromCluster extracts the DNS host name from the cluster's load

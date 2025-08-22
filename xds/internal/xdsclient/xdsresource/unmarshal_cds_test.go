@@ -257,6 +257,37 @@ func (s) TestValidateCluster_Failure(t *testing.T) {
 			},
 			wantErr: true,
 		},
+		{
+			name: "typed-metadata-parser-fails",
+			cluster: &v3clusterpb.Cluster{
+				Name:                 clusterName,
+				ClusterDiscoveryType: &v3clusterpb.Cluster_Type{Type: v3clusterpb.Cluster_EDS},
+				EdsClusterConfig: &v3clusterpb.Cluster_EdsClusterConfig{
+					EdsConfig: &v3corepb.ConfigSource{
+						ConfigSourceSpecifier: &v3corepb.ConfigSource_Ads{
+							Ads: &v3corepb.AggregatedConfigSource{},
+						},
+					},
+				},
+				LbPolicy: v3clusterpb.Cluster_ROUND_ROBIN,
+				Metadata: &v3corepb.Metadata{
+					TypedFilterMetadata: map[string]*anypb.Any{
+						"envoy.transport_sockets.http_11_proxy": testutils.MarshalAny(t, &v3corepb.Address{
+							Address: &v3corepb.Address_SocketAddress{
+								SocketAddress: &v3corepb.SocketAddress{
+									Address: "invalid-ip-address", // This invalid IP will cause the parser to fail.
+									PortSpecifier: &v3corepb.SocketAddress_PortValue{
+										PortValue: 8080,
+									},
+								},
+							},
+						}),
+					},
+					FilterMetadata: map[string]*protobuf.values()
+				},
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -1632,6 +1663,7 @@ func (s) TestUnmarshalCluster(t *testing.T) {
 			wantErr:  true,
 		},
 	}
+	// this is basically the test and verifies that the output matches what we expect
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			name, update, err := unmarshalClusterResource(test.resource, test.serverCfg)
